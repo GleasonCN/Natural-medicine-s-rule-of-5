@@ -1,0 +1,103 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, roc_curve, recall_score, precision_score, matthews_corrcoef, confusion_matrix
+
+# Reading data in an Excel file
+data = pd.read_excel('.xlsx')
+
+# Supposing the second to last column is the feature and the last column is the label
+features = data.iloc[:, 1:-1]
+labels = data.iloc[:, -1]
+
+# Scaling Data
+scaler = StandardScaler()
+features_scaled = scaler.fit_transform(features)
+
+# Partition data set
+X_train, X_test, y_train, y_test = train_test_split(features_scaled, labels, test_size=0.2, random_state=42)
+
+# Initializing the model and hyperparameters
+model_params = {
+    'Random Forest': {
+        'model': RandomForestClassifier(random_state=42),
+        'params': {'n_estimators': [50, 100, 200]}
+    },
+    'Gradient Boosting': {
+        'model': GradientBoostingClassifier(random_state=42),
+        'params': {'n_estimators': [50, 100, 200], 'learning_rate': [0.01, 0.1, 0.5]}
+    },
+    'Logistic Regression': {
+        'model': LogisticRegression(max_iter=1000, random_state=42),
+        'params': {'C': [0.1, 1, 10]}
+    },
+    'Support Vector Machine': {
+        'model': SVC(probability=True, random_state=42),
+        'params': {'C': [0.1, 1, 10], 'kernel': ['linear', 'rbf']}
+    }
+}
+
+# Training and evaluating the model
+results = {}
+best_accuracy = 0
+best_model_name = None
+best_model = None
+
+for model_name, mp in model_params.items():
+    grid_search = GridSearchCV(mp['model'], mp['params'], cv=5, n_jobs=-1, scoring='accuracy')
+    grid_search.fit(X_train, y_train)
+
+    best_clf = grid_search.best_estimator_
+    y_pred = best_clf.predict(X_test)
+    y_pred_proba = best_clf.predict_proba(X_test)[:, 1] if hasattr(best_clf, "predict_proba") else best_clf.decision_function(X_test)
+
+    accuracy = accuracy_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred, average='weighted')
+    auc = roc_auc_score(y_test, y_pred_proba)
+    sensitivity = recall_score(y_test, y_pred)
+    tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
+    specificity = tn / (tn + fp)
+    precision = precision_score(y_test, y_pred)
+    mcc = matthews_corrcoef(y_test, y_pred)
+
+    fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
+
+    results[model_name] = {
+        "best_params": grid_search.best_params_,
+        "model": best_clf,
+        "accuracy": accuracy,
+        "f1_score": f1,
+        "auc": auc,
+        "sensitivity": sensitivity,
+        "specificity": specificity,
+        "precision": precision,
+        "mcc": mcc,
+        "fpr": fpr,
+        "tpr": tpr,
+        "confusion_matrix": confusion_matrix(y_test, y_pred)
+    }
+
+    if model_name == 'Random Forest':
+        best_accuracy = accuracy
+        best_model_name = model_name
+        best_model = best_clf
+
+# Predicting new data
+# Reading forecast data
+predict_data = pd.read_excel('.xlsx')
+predict_features = predict_data.iloc[:, 1:]
+predict_features_scaled = scaler.transform(predict_features)
+
+# Using the best model to make predictions
+predict_probabilities = best_model.predict_proba(predict_features_scaled)[:, 1]
+
+# Add prediction results to DataFrame
+predict_data['Prediction_Probability'] = predict_probabilities
+
+# Save the prediction to Excel
+predict_data.to_excel('.xlsx', index=False)
+
+print("Prediction results have been saved to '.xlsx' 文件中。")
